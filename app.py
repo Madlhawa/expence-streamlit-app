@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 import psycopg2
 import os
 
@@ -46,24 +47,111 @@ def insert_data(transaction_date, spender_name, account_name, category_name, rem
     finally:
         conn.close()
 
-# Function to view data from the "expence" table
-def view_data():
+# Function to view data from the "expence" table with filters
+def view_data(transaction_date_filter, spender_name_filter, account_name_filter, category_name_filter, amount_filter, importance_filter):
     conn = create_connection()
     try:
         cursor = conn.cursor()
         
-        # Select all data from the "expence" table
+        # Construct the SQL query with optional filters
         select_query = """
         SELECT * FROM edwp.expence
         """
+        
+        # Filter by transaction date
+        if transaction_date_filter:
+            select_query += f" WHERE transaction_date = '{transaction_date_filter}'"
+        
+        # Filter by spender name
+        if spender_name_filter:
+            if 'WHERE' in select_query:
+                select_query += f" AND spender_name = '{spender_name_filter}'"
+            else:
+                select_query += f" WHERE spender_name = '{spender_name_filter}'"
+        
+        # Filter by account name
+        if account_name_filter:
+            if 'WHERE' in select_query:
+                select_query += f" AND account_name = '{account_name_filter}'"
+            else:
+                select_query += f" WHERE account_name = '{account_name_filter}'"
+        
+        # Filter by category name
+        if category_name_filter:
+            if 'WHERE' in select_query:
+                select_query += f" AND category_name = '{category_name_filter}'"
+            else:
+                select_query += f" WHERE category_name = '{category_name_filter}'"
+        
+        # Filter by amount
+        if amount_filter:
+            if 'WHERE' in select_query:
+                select_query += f" AND amount = {amount_filter}"
+            else:
+                select_query += f" WHERE amount = {amount_filter}"
+        
+        # Filter by importance
+        if importance_filter:
+            importance_value = "Y" if importance_filter else "N"
+            if 'WHERE' in select_query:
+                select_query += f" AND importance = '{importance_value}'"
+            else:
+                select_query += f" WHERE importance = '{importance_value}'"
+
         cursor.execute(select_query)
         data = cursor.fetchall()
 
-        # Display the data in a table
+        # Display the data in a Pandas DataFrame
+        df = pd.DataFrame(data, columns=["Transaction Date", "Spender Name", "Account Name", "Category Name", "Remarks", "Amount", "Importance"])
+        
+        st.dataframe(df)
+
         if data:
-            st.table(data)
+            # Allow the user to select a row for editing
+            selected_row = st.selectbox("Select a row to edit", [i for i in range(len(data))])
+
+            # Create a form for editing the selected row
+            with st.form("edit_data_form"):
+                col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+
+                # Input fields for editing data
+                edited_transaction_date = col1.date_input("Transaction Date", pd.to_datetime(df["Transaction Date"][selected_row]))
+                edited_spender_name = col2.text_input("Spender Name", df["Spender Name"][selected_row])
+                edited_account_name = col3.text_input("Account Name", df["Account Name"][selected_row])
+                edited_category_name = col4.text_input("Category Name", df["Category Name"][selected_row])
+                edited_remarks_text = col5.text_input("Remarks", df["Remarks"][selected_row])
+                edited_amount = col6.number_input("Amount", df["Amount"][selected_row])
+                edited_importance = col7.checkbox("Importance (Yes/No)", df["Importance"][selected_row] == "Y")
+
+                # Use st.form_submit_button for editing
+                edit_button = st.form_submit_button("Edit Data")
+
+            if edit_button:
+                conn = create_connection()
+                try:
+                    cursor = conn.cursor()
+
+                    # Map "Yes" to "Y" and "No" to "N"
+                    edited_importance_value = "Y" if edited_importance else "N"
+
+                    # Update the selected row in the "expence" table
+                    update_query = """
+                    UPDATE edwp.expence
+                    SET transaction_date = %s, spender_name = %s, account_name = %s, category_name = %s, remarks_text = %s, amount = %s, importance = %s
+                    WHERE rowid = %s
+                    """
+                    data = (edited_transaction_date, edited_spender_name, edited_account_name, edited_category_name, edited_remarks_text, edited_amount, edited_importance_value, selected_row+1)
+                    cursor.execute(update_query, data)
+
+                    conn.commit()
+                    st.success("Data updated successfully!")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                finally:
+                    conn.close()
+
         else:
-            st.info("No data available in the 'expence' table.")
+            st.info("No data available based on the applied filters.")
     except Exception as e:
         st.error(f"Error: {e}")
     finally:
@@ -126,4 +214,14 @@ if __name__ == '__main__':
     elif page == "View Data":
         # Display data viewing page
         st.header("View Data")
-        view_data()
+
+        # Filter options
+        transaction_date_filter = st.date_input("Filter by Transaction Date")
+        spender_name_filter = st.text_input("Filter by Spender Name")
+        account_name_filter = st.text_input("Filter by Account Name")
+        category_name_filter = st.text_input("Filter by Category Name")
+        amount_filter = st.number_input("Filter by Amount")
+        importance_filter = st.checkbox("Filter by Importance (Yes/No)")
+
+        # Apply filters and display data
+        view_data(transaction_date_filter, spender_name_filter, account_name_filter, category_name_filter, amount_filter, importance_filter)
