@@ -55,7 +55,8 @@ def view_data(transaction_date_filter, spender_name_filter, account_name_filter,
         
         # Construct the SQL query with optional filters
         select_query = """
-        SELECT * FROM edwp.expence
+        SELECT transaction_date,spender_name,account_name,category_name,remarks_text,amount,importance 
+        FROM edwp.expence
         """
         
         # Filter by transaction date
